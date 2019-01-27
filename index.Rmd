@@ -1,0 +1,173 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Jerome Locson"
+date: "1/27/2019"
+output: html_document
+---
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.
+
+- The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+- The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+## Data Exploration and Cleaning
+
+Assuming that we have downloaded the training and test datasets from the sources mentioned above, we will now load and clean the datasets. Please change the CSV file directory accordingly.
+
+```{r, cache=TRUE}
+# Load the training dataset
+training_dataset <- read.csv("data/pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+# Load the testing dataset
+testing_dataset <- read.csv("data/pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+Now, let's examine the dataset dimensions:
+
+```{r, cache=TRUE}
+dim(training_dataset)
+dim(testing_dataset)
+```
+
+The training dataset has `r dim(training_dataset)[1]` rows and `r dim(training_dataset)[2]` columnns.
+Likewise, the test dataset has `r dim(testing_dataset)[1]` rows and `r dim(testing_dataset)[2]` columnns.
+Both seems to have the same number of column, which is good.
+
+Now, we need to clean the datasets, we only need columns that are relavant. We need to remove all columns with 95% N/A values.
+
+```{r, cache=TRUE}
+na_var_test <- sapply(testing_dataset, function(x) mean(is.na(x))) > 0.95
+training_dataset <- training_dataset[ , na_var_test == FALSE]
+testing_dataset <- testing_dataset[ , na_var_test == FALSE]
+```
+
+We only need the relavant features for the machine learning models that we will be building.
+
+```{r, cache=TRUE}
+features <- names(testing_dataset[,colSums(is.na(testing_dataset)) == 0])[8:59]
+
+# Only use features used in testing cases.
+training_dataset <- training_dataset[,c(features,"classe")]
+testing_dataset <- testing_dataset[,c(features,"problem_id")]
+```
+
+Let's check again the new and cleaned datasets.
+```{r, cache=TRUE}
+dim(training_dataset)
+dim(testing_dataset)
+```
+
+Both datasets are now with `r dim(training_dataset)[2]` and `r dim(testing_dataset)[2]` columnns. This looks great! So let's proceed to the next step.
+
+## Data Partitioning for Training
+
+In this section, we will do data partitioning for the training model that we will build.But first, we will load the necessary libraries that we will be using in this exercise.
+
+```{r, cache=TRUE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+```
+
+Initially, we need to set the seed for reproducibility. A common practice is to split the training dataset into two just to run the training and testing models. Mind you that the **testing** partitioned dataset here is not yet the dataset we have above for final testing.  This is just to do cross-validation on how the models will perform.
+
+We will split the training dataset into two, **70% for training and 30% for testing**.
+
+```{r, cache=TRUE}
+set.seed(2019)
+trainingPartition <- createDataPartition(training_dataset$classe, p=0.7, list=FALSE)
+training <- training_dataset[trainingPartition,]
+testing <- training_dataset[-trainingPartition,]
+```
+
+Let's check the dimension of the split of training dataset.
+
+```{r, cache=TRUE}
+dim(training)
+dim(testing)
+```
+
+The result looks good. We have `r dim(training)[1]` (70%) and `r dim(testing)[1]` (30%) rows for training and testing datasets, respectively. Now, let's build our Machine Learning Models.
+
+## Random Forest (RF) Model
+
+Again, let's set the seed for reproducibility. We will use the **classe** feature as to where we will build the model. **classe** is the column from the training dataset that classifies how well the participants performs the exercise. The physical exercise was done in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz5dmHjujzJ
+
+```{r, cache=TRUE}
+set.seed(2019)
+rf <- randomForest(classe ~ ., data = training)
+rf
+```
+The data above shows that the RF model was built using  **ntree=`r rf$ntree`**  with **mtry=`r rf$mtry`**. We also see that OOB (Out-of-bag) Error is pretty goood at **0.42%**. This means that the model we have predicts at a level of 99.5% accuracy. As this is a very good rate, we do not need to fine-tune the model. 
+
+Let's see RF in a plot.
+
+```{r, cache=TRUE}
+plot(rf)
+```
+The plot shows that there is no significant error improvements in trees beyond 100. We tried to adjust this with the original RF but the OOB error increase abit. So we will use the default settings instead.
+
+Let's check the important variables used in the RF model. 
+```{r, cache=TRUE}
+varImpPlot(rf)
+```
+
+Okay. So we now have the RF model in place, let's check and run some predictions using our **training** and **testing** datasets.
+
+```{r, cache=TRUE}
+predict_rf_1 <- predict(rf, training)
+confusionMatrix(predict_rf_1, training$classe)
+```
+
+Using the training dataset, we can see that the accuracy is 1 which means it 100% correctly predicted the **classe**.
+
+```{r, cache=TRUE}
+predict_rf_2 <- predict(rf, testing)
+confusionMatrix(predict_rf_2, testing$classe)
+```
+Using the testing dataset, we can see that the accuracy is  0.9942 which is very close to 100%.
+
+## Decision Tree (DT) Model
+
+Let's build another model using Decision Tree. As usual, let's set seed for reproducibility. using **rpart**, let's pass the same parameters for our data and use method as **class** for *classification*. A plot shows the built DT model.
+
+```{r, cache=TRUE}
+set.seed(2019)
+dt <- rpart(classe ~ ., data = training,  method="class")
+fancyRpartPlot(dt)
+```
+
+Using the DT model, let's run some predictions using our **training** and **testing** datasets.
+
+```{r, cache=TRUE}
+predict_dt_1 <- predict(dt, training, type = "class")
+confusionMatrix(predict_dt_1, training$classe)
+predict_dt_2 <- predict(dt, testing, type = "class")
+confusionMatrix(predict_dt_2, testing$classe)
+```
+
+Both resulted to a low Accuracy rate at  0.7296 and 0.7217 compared to the RF model, respectively.
+
+## Prediction with Test Data with 2 Models
+
+Lastly, let's finally use the RF and DT prediction models to predict 20 different test cases from above.
+
+```{r, cache=TRUE}
+predictionRF <- predict(rf, testing_dataset)
+predictionRF
+predictionDT <- predict(dt, testing_dataset, type = "class")
+predictionDT
+```
+
+We can observe that some test cases matches in both models. This means our models are doing good in predicting how well the participants are doing the exercises. Again, **A** represents the best case.
+
